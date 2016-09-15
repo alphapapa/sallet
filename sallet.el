@@ -127,7 +127,7 @@ Return a generator."
              (sallet-update-candidates state source)
              ;; TODO: do we want to render here?
              (sallet-render-state state t))))
-        (sit-for 0.01)
+        (sit-for 0.01 t)
         proc))))
 
 (defun sallet-process-run-in-directory (process-creator directory)
@@ -444,6 +444,8 @@ is opened through xdg-open(1)."
            (sallet--propertize-header
             (concat (sallet--wrap-header-string header source) "\n"))))))))
 
+(define-error 'sallet-yield "yield")
+
 ;; TODO propertize the interesting stuff, define faces
 (defun sallet-render-source (source state offset)
   "Render SOURCE in STATE.
@@ -479,7 +481,11 @@ Return number of rendered candidates."
                     ;; so
                     (funcall renderer candidate state (cdr-safe n))
                     "\n"))
-          (setq i (1+ i))))
+          (setq i (1+ i))
+          ;; (when (= 0 (mod i 50))
+          ;;   (unless (sit-for 0.01 t)
+          ;;     (signal 'sallet-yield nil)))
+          ))
       i)))
 
 (defun sallet-render-state (state render-sources)
@@ -490,23 +496,26 @@ STATE is the current `sallet-state'.
 RENDER-SOURCES indicates whether we need to render sources (in
 case the prompt or candidates changed) or only update the
 scrolling/position of selected/marked candidate."
-  (when render-sources
-    (with-current-buffer (sallet-state-get-candidate-buffer state)
-      (erase-buffer)
-      (let ((offset 0))
-        (-each (sallet-state-get-sources state)
-          (lambda (source)
-            (setq offset (+ offset (sallet-render-source source state offset)))))
-        (insert "\n\n"))))
-  ;; Draw the >> pointer to the currently active candidate
-  (with-current-buffer (sallet-state-get-candidate-buffer state)
-    (-when-let (pos (text-property-any (point-min) (point-max) 'sallet-candidate-index (sallet-state-get-selected-candidate state)))
-      (ov-clear 'sallet-selected-candidate-arrow)
-      (goto-char pos)
-      ;; TODO: add face, extend the overlay over the entire row? (then
-      ;; we can highlight the rest with some overlay as well)
-      (ov (point) (+ 2 (point)) 'display ">>" 'sallet-selected-candidate-arrow t)
-      (set-window-point (get-buffer-window (sallet-state-get-candidate-buffer state)) pos))))
+  (condition-case yield
+      (progn
+        (when render-sources
+          (with-current-buffer (sallet-state-get-candidate-buffer state)
+            (erase-buffer)
+            (let ((offset 0))
+              (-each (sallet-state-get-sources state)
+                (lambda (source)
+                  (setq offset (+ offset (sallet-render-source source state offset)))))
+              (insert "\n\n"))))
+        ;; Draw the >> pointer to the currently active candidate
+        (with-current-buffer (sallet-state-get-candidate-buffer state)
+          (-when-let (pos (text-property-any (point-min) (point-max) 'sallet-candidate-index (sallet-state-get-selected-candidate state)))
+            (ov-clear 'sallet-selected-candidate-arrow)
+            (goto-char pos)
+            ;; TODO: add face, extend the overlay over the entire row? (then
+            ;; we can highlight the rest with some overlay as well)
+            (ov (point) (+ 2 (point)) 'display ">>" 'sallet-selected-candidate-arrow t)
+            (set-window-point (get-buffer-window (sallet-state-get-candidate-buffer state)) pos))))
+    (sallet-yield nil)))
 
 (defun sallet--kill-source-process (source)
   "Kill process associated with SOURCE, if any."
